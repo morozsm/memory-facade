@@ -12,6 +12,7 @@ from typing import Any
 from fastmcp import FastMCP
 
 from mf import config
+from mf.dedupe import NoopConsolidator, DupRow, dedupe_scan
 from mf.hindsight import HindsightClient
 from mf.ingest import NoopCardWriter, ingest_url
 from mf.recall import Synthesizer, recall
@@ -153,6 +154,42 @@ def memory_session_to_docs(
             for a in docs.articles
         ],
     }
+
+
+@mcp.tool()
+def memory_dedupe(
+    bank: str = "infra",
+    sample_limit: int = 500,
+    commit: bool = False,
+) -> dict[str, Any]:
+    """Find duplicate / over-fragmented memories in a bank and propose merging.
+
+    Detects exact chunk_id collisions and normalized-text duplicates, returns
+    the proposed groups. With ``commit=True`` runs consolidation (destructive);
+    read-only by default.
+    """
+    client = _client()
+    import urllib.parse
+
+    encoded = urllib.parse.quote(bank, safe="")
+    payload = client.get(f"/v1/default/banks/{encoded}/memories/list?limit={sample_limit}")
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    rows = [
+        DupRow(
+            id=str(it.get("id") or ""),
+            text=str(it.get("text") or ""),
+            chunk_id=it.get("chunk_id"),
+        )
+        for it in items
+        if it.get("text")
+    ]
+    result = dedupe_scan(
+        rows,
+        client,
+        consolidator=NoopConsolidator() if commit else None,
+        commit=commit,
+    )
+    return result
 
 
 def main() -> None:
