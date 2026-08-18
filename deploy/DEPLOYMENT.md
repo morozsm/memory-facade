@@ -1,18 +1,41 @@
 # Memory-Facade deployment & security posture
 
-This document captures how memory-facade is deployed and the non-negotiable
-security posture. Deploy is **deliberately not wired up yet** — this is the
-target design so all builds stay compatible. Group 4 performs the actual deploy.
+Two deployment modes:
+
+- **Mode A — local standalone (LIVE now):** memory-facade runs as a launchd
+  LaunchAgent on the Mac, exposing streamable-http on `127.0.0.1:8500/mcp`.
+  Hermes connects via `hermes mcp add memory-facade --url http://127.0.0.1:8500/mcp/`
+  and gets all 6 curated tools. No Orange Pi, no production change.
+- **Mode B — Orange Pi LiteLLM runtime (prepared, NOT deployed):** facade runs
+  as a stdio server inside the `msm-ai-gateway` LiteLLM MCP runtime, exported as
+  `/memory-facade/mcp`. Requires push of the repo + `production-up.sh` + user
+  approval (see `litellm-mcp-entry.md`).
 
 ## Transport
 
-Memory-facade is an **MCP stdio server** (`python -m mf.server`, fastmcp). It is
-launched as a child process by an MCP runtime that owns the stdio/HTTP bridge.
-For this stack, that runtime is the `msm-ai-gateway` **LiteLLM MCP runtime**
-(verified feasible): the runtime's Docker image adds `uv`/`uvx`, so the facade
-runs via `uv run --project … python -m mf.server`.
+Memory-facade is an **MCP server** (fastmcp) that supports both:
+- **stdio** (`python -m mf.server`) — used by Mode B / process-managed clients.
+- **streamable-http / sse** (`python -m mf.server --transport streamable-http
+  --host 127.0.0.1 --port 8500`) — used by Mode A standalone deployment.
 
-## Add to LiteLLM runtime (`config/litellm.yaml`)
+## Mode A — local launchd service (live)
+
+LaunchAgent `~/Library/LaunchAgents/com.msmsoft.memory-facade.plist` runs the
+facade with `KeepAlive` on `127.0.0.1:8500`, `PYTHONPATH` cleared (the Hermes env
+otherwise shadows pydantic), `HINDSIGHT_API_URL=https://memory.msmsoft.net`, logs
+to `~/.hermes/logs/memory-facade*.log`.
+
+```sh
+launchctl load ~/Library/LaunchAgents/com.msmsoft.memory-facade.plist   # start
+launchctl unload ~/Library/LaunchAgents/com.msmsoft.memory-facade.plist # stop
+```
+
+Hermes wiring (done): `hermes mcp add memory-facade --url "http://127.0.0.1:8500/mcp/"`.
+Verified via `hermes mcp list` (enabled) and an end-to-end
+streamable-http `memory_recall` call. **New Hermes session required to expose the
+`mcp_memory_facade_*` tools** (no hot-reload).
+
+## Mode B — Orange Pi LiteLLM runtime (prepared, not deployed)
 
 Mirrors the existing `lightrag` entry exactly (stdio + `allow_all_keys` + env
 injection). Example:
