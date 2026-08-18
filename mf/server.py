@@ -241,11 +241,14 @@ def main(args: list[str] | None = None) -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Bind host (default 127.0.0.1).")
     parser.add_argument("--port", type=int, default=8500, help="Listen port for HTTP/SSE.")
     parsed = parser.parse_args(args)
-    mcp.run(
-        transport=parsed.transport,
-        host=parsed.host,
-        port=parsed.port,
-    )
+    # stdio has no bind address: FastMCP dispatches to run_stdio_async(), which
+    # rejects host/port. Passing them raises TypeError on every connection and
+    # the client sees nothing but "Connection closed".
+    transport_kwargs: dict[str, object] = {}
+    if parsed.transport != "stdio":
+        transport_kwargs["host"] = parsed.host
+        transport_kwargs["port"] = parsed.port
+    mcp.run(transport=parsed.transport, **transport_kwargs)
 
 
 if __name__ == "__main__":
