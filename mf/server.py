@@ -16,6 +16,7 @@ from mf.dedupe import NoopConsolidator, DupRow, dedupe_scan
 from mf.hindsight import HindsightClient
 from mf.ingest import NoopCardWriter, ingest_url
 from mf.recall import Synthesizer, recall
+from mf.reroute import NoopRelocator, reroute_scan
 from mf.session_docs import NoopDocWriter, session_to_docs
 
 mcp = FastMCP("memory-facade")
@@ -187,6 +188,34 @@ def memory_dedupe(
         rows,
         client,
         consolidator=NoopConsolidator() if commit else None,
+        commit=commit,
+    )
+    return result
+
+
+@mcp.tool()
+def memory_reroute(
+    source_bank: str = "global-user",
+    sample_limit: int = 500,
+    commit: bool = False,
+) -> dict[str, Any]:
+    """Find memories misrouted to the wrong bank and propose relocating them.
+
+    Detects rows in ``source_bank`` that deterministically belong in another
+    bank (e.g. infra content in ``global-user``) and returns the move proposals.
+    With ``commit=True`` relocates (destructive); read-only by default.
+    """
+    client = _client()
+    import urllib.parse
+
+    encoded = urllib.parse.quote(source_bank, safe="")
+    payload = client.get(f"/v1/default/banks/{encoded}/memories/list?limit={sample_limit}")
+    items = payload.get("items", []) if isinstance(payload, dict) else []
+    result = reroute_scan(
+        source_bank,
+        items,
+        client,
+        relocator=NoopRelocator() if commit else None,
         commit=commit,
     )
     return result
