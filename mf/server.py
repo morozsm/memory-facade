@@ -13,6 +13,7 @@ from fastmcp import FastMCP
 
 from mf import config
 from mf.hindsight import HindsightClient
+from mf.recall import Synthesizer, recall
 
 mcp = FastMCP("memory-facade")
 
@@ -48,6 +49,43 @@ def make_ping(_client: HindsightClient | None = None):
 def ping() -> dict[str, Any]:
     """Report Hindsight connectivity/health from the facade."""
     return make_ping()()
+
+
+@mcp.tool()
+def memory_recall(
+    query: str,
+    banks: list[str] | None = None,
+    budget: str = "mid",
+    max_items: int = 8,
+) -> dict[str, Any]:
+    """Curated semantic recall across Hindsight banks.
+
+    Queries the given ``banks`` (default ``["global-user"]``), merges results
+    with [[bank:id]] provenance, de-duplicates rows sharing a chunk, and returns
+    a synthesis with citations. Read-only; never mutates memory.
+    """
+    client = _client()
+    used_banks = banks or ["global-user"]
+    result = recall(client, query=query, banks=used_banks, budget=budget)
+    synth = Synthesizer()
+    return {
+        "query": query,
+        "banks": used_banks,
+        "recalled": len(result.items),
+        "deduped": len(result.deduped_items()),
+        "synthesis": synth.synthesize(result, limit=max_items),
+        "items": [
+            {
+                "bank": it.bank,
+                "id": it.id,
+                "text": it.text,
+                "type": it.fact_type,
+                "tags": it.tags,
+                "citation": it.citation,
+            }
+            for it in result.deduped_items()[:max_items]
+        ],
+    }
 
 
 def main() -> None:
