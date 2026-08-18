@@ -221,8 +221,31 @@ def memory_reroute(
     return result
 
 
-def main() -> None:
-    mcp.run()
+def main(args: list[str] | None = None) -> None:
+    """Run the MCP server.
+
+    Transport defaults to stdio (for the LiteLLM runtime / local clients).
+    Pass ``--transport sse`` (or ``http``) + ``--port`` to expose as a
+    standalone HTTP/SSE server so remote MCP clients (e.g. Hermes over ``url``)
+    can connect without the Orange Pi runtime.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(prog="memory-facade")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse", "http", "streamable-http"],
+        default="stdio",
+        help="MCP transport (default stdio).",
+    )
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host (default 127.0.0.1).")
+    parser.add_argument("--port", type=int, default=8500, help="Listen port for HTTP/SSE.")
+    parsed = parser.parse_args(args)
+    mcp.run(
+        transport=parsed.transport,
+        host=parsed.host,
+        port=parsed.port,
+    )
 
 
 if __name__ == "__main__":
