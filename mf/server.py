@@ -13,6 +13,7 @@ from fastmcp import FastMCP
 
 from mf import config
 from mf.hindsight import HindsightClient
+from mf.ingest import NoopCardWriter, ingest_url
 from mf.recall import Synthesizer, recall
 
 mcp = FastMCP("memory-facade")
@@ -85,6 +86,38 @@ def memory_recall(
             }
             for it in result.deduped_items()[:max_items]
         ],
+    }
+
+
+@mcp.tool()
+def memory_ingest_url(
+    url: str,
+    explicit_bank: str | None = None,
+    commit: bool = False,
+) -> dict[str, Any]:
+    """Analyze a URL and produce a compact, cross-linked article card.
+
+    Fetches the URL, auto-routes bank/tags, builds an article, auto-links to
+    related existing cards, and (with ``commit=True``) persists card facts.
+    Read-only by default.
+    """
+    client = _client()
+    result = ingest_url(
+        url,
+        client,
+        explicit_bank=explicit_bank,
+        writer=NoopCardWriter() if commit else None,
+        commit=commit,
+    )
+    article = result.article
+    return {
+        "url": url,
+        "bank": article.bank,
+        "title": article.title,
+        "tags": article.tags,
+        "related": result.related,
+        "committed": result.committed,
+        "summary": article.summary,
     }
 
 
