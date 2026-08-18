@@ -15,6 +15,7 @@ from mf import config
 from mf.hindsight import HindsightClient
 from mf.ingest import NoopCardWriter, ingest_url
 from mf.recall import Synthesizer, recall
+from mf.session_docs import NoopDocWriter, session_to_docs
 
 mcp = FastMCP("memory-facade")
 
@@ -118,6 +119,39 @@ def memory_ingest_url(
         "related": result.related,
         "committed": result.committed,
         "summary": article.summary,
+    }
+
+
+@mcp.tool()
+def memory_session_to_docs(
+    facts: list[str],
+    commit: bool = False,
+) -> dict[str, Any]:
+    """Turn a session's durable facts into a linked documentation set.
+
+    Groups the facts into topic clusters, builds one Article per cluster, and
+    cross-links them into a doc set. With ``commit=True`` the cards are
+    persisted. Read-only by default.
+    """
+    client = _client()
+    docs = session_to_docs(
+        facts,
+        client,
+        writer=NoopDocWriter() if commit else None,
+        commit=commit,
+    )
+    return {
+        "committed": docs.committed,
+        "articles": [
+            {
+                "title": a.title,
+                "bank": a.bank,
+                "tags": a.tags,
+                "links": a.links,
+                "summary": a.summary,
+            }
+            for a in docs.articles
+        ],
     }
 
 
