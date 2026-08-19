@@ -16,7 +16,7 @@ from mf.dedupe import NoopConsolidator, DupRow, dedupe_scan
 from mf.hindsight import HindsightClient
 from mf.ingest import NoopCardWriter, ingest_url
 from mf.recall import Synthesizer, recall
-from mf.reroute import NoopRelocator, reroute_scan
+from mf.reroute import reroute_scan
 from mf.session_docs import NoopDocWriter, session_to_docs
 
 mcp = FastMCP("memory-facade")
@@ -215,7 +215,6 @@ def memory_reroute(
         source_bank,
         items,
         client,
-        relocator=NoopRelocator() if commit else None,
         commit=commit,
     )
     return result

@@ -38,12 +38,23 @@ class Relocator(Protocol):
 
 
 class NoopRelocator:
+    """Records proposals without moving anything.
+
+    ``relocate`` reports ``moved: False`` and ``dry_run: True`` so a no-op can
+    never be mistaken for a completed move in the tool output.
+    """
+
     def __init__(self) -> None:
         self.proposals: list[Misroute] = []
 
     def relocate(self, misroute: Misroute, client: Any) -> dict[str, Any]:
         self.proposals.append(misroute)
-        return {"moved": misroute.id, "to": misroute.target_bank}
+        return {
+            "moved": False,
+            "dry_run": True,
+            "id": misroute.id,
+            "to": misroute.target_bank,
+        }
 
 
 def find_misroutes(
@@ -80,12 +91,27 @@ def reroute_scan(
     rows: list[dict],
     client: Any,
     *,
-    allow_targets: tuple[str, ...] = ("infra", "global-user"),
+    allow_targets: tuple[str, ...] = _route.BANK_ALLOWLIST,
     relocator: Relocator | None = None,
     commit: bool = False,
 ) -> dict[str, Any]:
-    """Analyze misrouted rows. If ``commit``, relocate each."""
+    """Analyze misrouted rows. If ``commit``, relocate each.
+
+    ``commit=True`` requires a relocator that actually moves memories. Without
+    one the call raises instead of returning a success-shaped no-op: reporting a
+    move that never happened is worse than refusing to move.
+    """
     misroutes = find_misroutes(source_bank, rows, allow_targets=allow_targets)
+    if commit and relocator is None:
+        raise NotImplementedError(
+            "commit=True needs a relocator that actually moves facts. Hindsight's "
+            "only move primitive is document-level (/document-transfer, export ZIP "
+            "-> import), while these proposals are per fact: sampled global-user "
+            "documents hold ~74 facts each (max 320) and 2 of 5 mix facts belonging "
+            "to different banks, so transferring a document would drag unrelated "
+            "facts along. Re-run with commit=False for the proposals, or re-retain "
+            "the individual facts into the target bank and invalidate the originals."
+        )
     relo = relocator or NoopRelocator()
     applied: list[dict[str, Any]] = []
     if commit and misroutes:

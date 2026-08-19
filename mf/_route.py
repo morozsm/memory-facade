@@ -20,6 +20,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterable
 
+# Banks that exist on the instance and are approved by the taxonomy. Verified
+# against GET /v1/default/banks (2026-08-19). The facade never creates a bank,
+# so this is the hard boundary for explicit targets.
+BANK_ALLOWLIST: tuple[str, ...] = (
+    "global-user",
+    "infra",
+    "projects",
+    "business",
+    "work",
+    "medical",
+    "product-rigplane",
+    "project-rigplane-core",
+    "project-rigplane-tower",
+)
+
 # Bank -> indicative keywords (lowercased). Keep in sync with
 # ~/Projects/common-memory/docs/hindsight-bank-taxonomy.md.
 DEFAULT_BANK_RULES: dict[str, list[str]] = {
@@ -35,6 +50,17 @@ DEFAULT_BANK_RULES: dict[str, list[str]] = {
         "bws", "vault", "redis", "postgres", "hindsight", "common-memory",
         "unifi", "udm", "home assistant", "hass", "ollama", "ha proxy",
     ],
+    "business": [
+        "msmsoft", "strategy", "positioning", "pricing", "customer",
+        "partner", "go-to-market", "business plan",
+    ],
+    "work": [
+        "serverstack", "digitalocean", "employer", "colleague", "work project",
+    ],
+    "medical": [
+        "medical", "health", "diagnosis", "clinic", "doctor", "prescription",
+    ],
+    "product-rigplane": ["rigplane"],
 }
 
 # Tag prefixes we may emit deterministically. Values are derived from keywords.
@@ -80,7 +106,7 @@ def derive_tags(text: str) -> list[str]:
 
 def route(
     text: str,
-    bank_allowlist: Iterable[str] = ("global-user", "infra"),
+    bank_allowlist: Iterable[str] = BANK_ALLOWLIST,
     explicit_bank: str | None = None,
     ambiguity_threshold: int = DEFAULT_AMBIGUITY_THRESHOLD,
 ) -> Route:
@@ -106,6 +132,10 @@ def route(
         score = _hits(text, keywords)
         if score > best_score:
             best_score = score
+            best_bank = bank
+        elif score == best_score and score > 0 and best_bank == "global-user":
+            # Tie-break towards the specific bank: global-user is reserved for
+            # personal/workflow memory, so a domain bank scoring equally wins.
             best_bank = bank
 
     if best_bank is None or best_score < ambiguity_threshold:

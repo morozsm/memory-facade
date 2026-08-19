@@ -1,6 +1,6 @@
 [project]
 name = "memory-facade"
-version = "0.1.1"
+version = "0.1.2"
 description = "Thin stateless MCP curation layer over Hindsight + LightRAG for shared agent memory"
 readme = "README.md"
 requires-python = ">=3.11"

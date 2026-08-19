@@ -45,6 +45,30 @@ class CardWriter(Protocol):
 
 # --- default implementations ------------------------------------------------------
 
+def strip_markup(raw: str, limit: int = 5000) -> str:
+    """Reduce an HTML document to visible text, then cap it.
+
+    Script and style bodies are removed before the tags, because their contents
+    are not visible text and poison keyword routing: GitHub's inline CSS carries
+    ``--tab-size-preference``, which the router scored as a personal
+    "preference". Capping after stripping (rather than slicing the raw HTML)
+    keeps real page content inside the budget instead of spending it on markup.
+    """
+    import html as htmlmod
+    import re
+
+    text = re.sub(
+        r"<(script|style|noscript|template)\b[^>]*>.*?</\1\s*>",
+        " ",
+        raw,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = htmlmod.unescape(re.sub(r"\s+", " ", text)).strip()
+    return text[:limit]
+
+
 def default_fetcher(url: str) -> tuple[str | None, str]:
     """Minimal HTTP fetch. Lightweight, no external libs; best-effort text."""
     from urllib.parse import urlparse
@@ -55,7 +79,7 @@ def default_fetcher(url: str) -> tuple[str | None, str]:
         raise ValueError(f"unsupported URL scheme: {parsed.scheme}")
     with urlopen(url, timeout=30) as resp:
         raw = resp.read().decode("utf-8", errors="replace")
-    # crude title + text strip (real extraction is a Group-4 refinement)
+
     import html as htmlmod
     import re
 
@@ -63,9 +87,7 @@ def default_fetcher(url: str) -> tuple[str | None, str]:
     m = re.search(r"<title[^>]*>(.*?)</title>", raw, re.IGNORECASE | re.DOTALL)
     if m:
         title = htmlmod.unescape(re.sub(r"\s+", " ", m.group(1))).strip()
-    text = re.sub(r"<[^>]+>", " ", raw)
-    text = htmlmod.unescape(re.sub(r"\s+", " ", text)).strip()
-    return title, text[:5000]
+    return title, strip_markup(raw)
 
 
 class DefaultLinkFinder:
