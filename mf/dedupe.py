@@ -1,13 +1,14 @@
 """mf.dedupe — find and propose consolidation of duplicate/over-fragmented rows.
 
-Baseline (2026-08-18) showed both banks dominated by ~88% chunk-colliding rows
-(global-user: 124 distinct chunk_ids / 1000 rows; infra: 49 / 464). Consolidation
-runs but does not merge. This tool surfaces those duplicates and proposes groups
-to consolidate.
+Detection (deterministic, no LLM): normalized-text equality. The same statement
+stored twice is redundancy and can be consolidated.
 
-Detection (deterministic, no LLM):
-  - exact ``chunk_id`` collisions  -> definite duplicates
-  - normalized-text equality       -> semantic duplicates with different chunk
+``chunk_id`` is NOT used. An earlier baseline (2026-08-18) read ~88% chunk-
+colliding rows as duplicates; re-measuring the live global-user bank on
+2026-08-19 disproved that: of 846 chunk groups covering 4531 of 7004 facts,
+0 held identical text and 843 held genuinely distinct facts. Hindsight extracts
+many facts from one source chunk, so a shared chunk_id is shared provenance and
+consolidating on it destroys real memory.
 
 ``commit=True`` performs consolidation through a ``Consolidator``. The default
 Consolidator is a no-op (records what WOULD be merged); the real Hindsight
@@ -63,13 +64,15 @@ def _lex_sim(a: str, b: str) -> bool:
 
 
 def find_duplicates(rows: list[DupRow]) -> list[DupGroup]:
-    """Group rows by chunk_id then by normalized text. Deterministic."""
-    # exact chunk collisions
-    by_chunk: dict[str, list[DupRow]] = {}
-    for row in rows:
-        if row.chunk_id:
-            by_chunk.setdefault(row.chunk_id, []).append(row)
+    """Group rows by normalized text equality. Deterministic.
 
+    ``chunk_id`` is deliberately NOT a duplicate signal. Hindsight extracts many
+    separate facts from a single source chunk, so a shared chunk_id records
+    shared provenance, not redundancy. Measured on the live global-user bank
+    (7004 facts): chunk grouping produced 846 groups covering 4531 rows (64.7%
+    of the bank) while 0 groups held identical text and 843 held genuinely
+    distinct facts — consolidating on it would have destroyed real memory.
+    """
     groups: list[DupGroup] = []
 
     def add_group(members: list[DupRow]) -> None:
@@ -78,15 +81,8 @@ def find_duplicates(rows: list[DupRow]) -> list[DupGroup]:
 
     used: set[str] = set()
 
-    # 1) chunk collisions (strongest signal)
-    for chunk, members in by_chunk.items():
-        real = [m for m in members if m.id not in used]
-        if len(real) >= 2:
-            ids = {m.id for m in real}
-            used |= ids
-            add_group(real)
-
-    # 2) normalized-text duplicates among remaining
+    # Normalized-text duplicates: the same statement stored more than once,
+    # whether or not the copies share a chunk.
     remaining = [r for r in rows if r.id not in used]
     while remaining:
         first = remaining[0]

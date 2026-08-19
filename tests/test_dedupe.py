@@ -7,10 +7,23 @@ def _row(id_, text, chunk=None):
     return DupRow(id=id_, text=text, chunk_id=chunk)
 
 
-def test_chunk_collision_detected():
+def test_same_chunk_different_text_is_not_a_duplicate():
+    """Shared chunk_id is shared provenance, not redundancy.
+
+    Hindsight extracts many distinct facts from one source chunk, so grouping
+    on chunk_id alone would propose merging unrelated memories.
+    """
     rows = [
         _row("1", "fact a", chunk="c9"),
         _row("2", "fact a duplicate", chunk="c9"),
+    ]
+    assert find_duplicates(rows) == []
+
+
+def test_repeated_text_in_one_chunk_detected():
+    rows = [
+        _row("1", "fact a", chunk="c9"),
+        _row("2", "fact a", chunk="c9"),
     ]
     groups = find_duplicates(rows)
     assert len(groups) == 1
@@ -36,7 +49,7 @@ def test_dedupe_scan_dry_run_no_commit():
     client = object()
     rows = [
         _row("1", "fact", "c9"),
-        _row("2", "fact copy", "c9"),
+        _row("2", "fact", "c9"),
     ]
     result = dedupe_scan(rows, client)
     assert result["duplicate_groups"] == 1
@@ -49,7 +62,7 @@ def test_dedupe_scan_commit_applies():
     cons = NoopConsolidator()
     rows = [
         _row("1", "fact", "c9"),
-        _row("2", "fact copy", "c9"),
+        _row("2", "fact", "c9"),
     ]
     result = dedupe_scan(rows, client, consolidator=cons, commit=True)
     assert result["committed"] is True
