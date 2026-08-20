@@ -59,10 +59,6 @@ class NoopConsolidator:
         return {"merged": len(group.members), "canonical": group.canonical.id}
 
 
-def _lex_sim(a: str, b: str) -> bool:
-    return a.normalized_text() == b.normalized_text()
-
-
 def find_duplicates(rows: list[DupRow]) -> list[DupGroup]:
     """Group rows by normalized text equality. Deterministic.
 
@@ -75,24 +71,15 @@ def find_duplicates(rows: list[DupRow]) -> list[DupGroup]:
     """
     groups: list[DupGroup] = []
 
-    def add_group(members: list[DupRow]) -> None:
+    # Bucket by normalized text, preserving first-seen order so the canonical
+    # row of each group is the earliest occurrence.
+    buckets: dict[str, list[DupRow]] = {}
+    for row in rows:
+        buckets.setdefault(row.normalized_text(), []).append(row)
+
+    for members in buckets.values():
         if len(members) >= 2:
             groups.append(DupGroup(canonical=members[0], duplicates=members[1:]))
-
-    used: set[str] = set()
-
-    # Normalized-text duplicates: the same statement stored more than once,
-    # whether or not the copies share a chunk.
-    remaining = [r for r in rows if r.id not in used]
-    while remaining:
-        first = remaining[0]
-        dupes = [r for r in remaining[1:] if _lex_sim(first, r)]
-        # always consume the first row, whether or not it has duplicates
-        ids = {first.id, *(r.id for r in dupes)}
-        used |= ids
-        if dupes:
-            add_group([first, *dupes])
-        remaining = [r for r in rows if r.id not in used]
 
     return groups
 

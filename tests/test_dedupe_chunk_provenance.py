@@ -52,3 +52,24 @@ def test_identical_text_within_one_chunk_is_a_duplicate():
     assert len(groups) == 1, "only the repeated fact should form a group"
     assert len(groups[0].duplicates) == 1
     assert {groups[0].canonical.id, groups[0].duplicates[0].id} == {"a", "b"}
+
+
+def test_canonical_is_earliest_and_order_is_preserved():
+    """Grouping is order-stable: the canonical row is the first occurrence,
+    groups follow first appearance, and three-plus copies collapse into one
+    group rather than a chain of pairs.
+    """
+    rows = [
+        DupRow(id="1", text="alpha", chunk_id="c_1"),
+        DupRow(id="2", text="beta", chunk_id="c_2"),
+        DupRow(id="3", text="ALPHA", chunk_id="c_3"),
+        DupRow(id="4", text="gamma", chunk_id="c_4"),
+        DupRow(id="5", text="  alpha  ", chunk_id="c_5"),
+        DupRow(id="6", text="beta", chunk_id="c_6"),
+    ]
+
+    groups = find_duplicates(rows)
+
+    assert [g.canonical.id for g in groups] == ["1", "2"]
+    assert [d.id for d in groups[0].duplicates] == ["3", "5"]
+    assert [d.id for d in groups[1].duplicates] == ["6"]
