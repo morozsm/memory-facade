@@ -60,7 +60,7 @@ class NoopRelocator:
 def find_misroutes(
     source_bank: str,
     rows: list[dict],
-    allow_targets: tuple[str, ...] = ("infra", "global-user"),
+    allow_targets: tuple[str, ...] = _route.BANK_ALLOWLIST,
 ) -> list[Misroute]:
     """Rows that deterministically route to a bank other than ``source_bank``."""
     out: list[Misroute] = []

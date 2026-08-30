@@ -18,10 +18,12 @@ the hard boundary; the facade never creates a bank.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
+import unicodedata
 from typing import Iterable
 
 # Banks that exist on the instance and are approved by the taxonomy. Verified
-# against GET /v1/default/banks (2026-08-19). The facade never creates a bank,
+# against GET /v1/default/banks (2026-08-30). The facade never creates a bank,
 # so this is the hard boundary for explicit targets.
 BANK_ALLOWLIST: tuple[str, ...] = (
     "global-user",
@@ -31,8 +33,6 @@ BANK_ALLOWLIST: tuple[str, ...] = (
     "work",
     "medical",
     "product-rigplane",
-    "project-rigplane-core",
-    "project-rigplane-tower",
 )
 
 # Bank -> indicative keywords (lowercased). Keep in sync with
@@ -48,17 +48,22 @@ DEFAULT_BANK_RULES: dict[str, list[str]] = {
         "ansible", "semaphore", "nginx", "haproxy", "tailscale", "docker",
         "compose", "orange pi", "orange-pi", "litellm", "gateway", "mcp",
         "bws", "vault", "redis", "postgres", "hindsight", "common-memory",
+        "memory bank", "mental model", "auto-retain", "bank inventory",
         "unifi", "udm", "home assistant", "hass", "ollama", "ha proxy",
     ],
     "business": [
-        "msmsoft", "strategy", "positioning", "pricing", "customer",
-        "partner", "go-to-market", "business plan",
+        "business strategy", "positioning", "pricing", "customer", "partner",
+        "go-to-market", "business plan",
     ],
     "work": [
-        "serverstack", "digitalocean", "employer", "colleague", "work project",
+        "serverstack", "employer", "colleague", "work project", "professional work",
     ],
     "medical": [
-        "medical", "health", "diagnosis", "clinic", "doctor", "prescription",
+        "medical", "diagnosis", "diagnoses", "clinic", "clinics",
+        "doctor", "doctors", "prescription", "prescriptions",
+        "personal health", "health record", "health records",
+        "medication", "medications", "lab result", "lab results", "lab work",
+        "blood test", "blood tests",
     ],
     "product-rigplane": ["rigplane"],
 }
@@ -72,6 +77,28 @@ TAG_KEYWORDS: dict[str, list[str]] = {
 }
 
 DEFAULT_AMBIGUITY_THRESHOLD = 1  # at least one keyword hit required to route
+
+# Safety-first detector independent of ordinary bank scoring. Compact matching
+# tolerates pluralization, inserted separators, and common Cyrillic homoglyphs
+# from browser/PDF text while avoiding a bare operational "health check".
+_MEDICAL_CONFUSABLES = str.maketrans(
+    {
+        "а": "a", "е": "e", "о": "o", "р": "p", "с": "c",
+        "у": "y", "х": "x", "і": "i", "ј": "j", "к": "k",
+        "м": "m", "т": "t", "в": "b", "н": "h",
+    }
+)
+_MEDICAL_COMPACT_STEMS = (
+    "medical", "healthcare", "healthinsurance",
+    "diagnosis", "diagnoses", "diagnosed",
+    "clinic", "doctor", "prescription", "medication", "patient", "hospital",
+    "therapy", "bloodtest", "labresult", "labwork",
+)
+_MEDICAL_HEALTH_PHRASES = (
+    "my health", "personal health", "mental health", "family health",
+    "health condition", "health record", "health concern", "health issue",
+    "health tracking",
+)
 
 
 class AmbiguousRouteError(RuntimeError):
@@ -89,17 +116,56 @@ class Route:
     method: str = "default"  # "explicit" | "auto" | "ambiguous"
 
 
+def _normalize_route_text(value: str) -> str:
+    """Normalize invisible formatting and separator variants for routing."""
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    # Remove zero-width/format controls inside words (including soft hyphen) so
+    # copied browser text cannot hide a sensitive keyword from the classifier.
+    normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Cf")
+    # Treat underscores, all Unicode dash punctuation, MINUS SIGN, and HYPHEN
+    # BULLET as equivalent separators, then collapse all whitespace variants.
+    normalized = "".join(
+        " " if ch == "_" or unicodedata.category(ch) == "Pd" or ch in {"\u2212", "\u2043"} else ch
+        for ch in normalized
+    )
+    return " ".join(normalized.split())
+
+
+def _has_sensitive_medical_signal(normalized_text: str) -> bool:
+    deconfused = normalized_text.translate(_MEDICAL_CONFUSABLES)
+    if any(phrase in deconfused for phrase in _MEDICAL_HEALTH_PHRASES):
+        return True
+    compact = re.sub(r"[^0-9a-z]", "", deconfused)
+    return any(stem in compact for stem in _MEDICAL_COMPACT_STEMS)
+
+
+def _contains_normalized_keyword(haystack: str, keyword: str) -> bool:
+    needle = _normalize_route_text(keyword)
+    if not needle:
+        return False
+    pattern = rf"(?<![0-9a-z]){re.escape(needle)}(?![0-9a-z])"
+    return re.search(pattern, haystack) is not None
+
+
+def _contains_keyword(text: str, keyword: str) -> bool:
+    """Match a normalized keyword as an ASCII-token-bounded phrase."""
+    return _contains_normalized_keyword(_normalize_route_text(text), keyword)
+
+
+def _hits_normalized(haystack: str, keywords: Iterable[str]) -> int:
+    return sum(1 for kw in keywords if _contains_normalized_keyword(haystack, kw))
+
+
 def _hits(text: str, keywords: Iterable[str]) -> int:
-    lowered = text.lower()
-    return sum(1 for kw in keywords if kw in lowered)
+    return _hits_normalized(_normalize_route_text(text), keywords)
 
 
 def derive_tags(text: str) -> list[str]:
     """Deterministically derive tags from keyword presence (dedup, ordered)."""
-    lowered = text.lower()
+    haystack = _normalize_route_text(text)
     tags: list[str] = []
     for tag, keywords in TAG_KEYWORDS.items():
-        if any(kw in lowered for kw in keywords):
+        if _hits_normalized(haystack, keywords):
             tags.append(tag)
     return tags
 
@@ -124,18 +190,32 @@ def route(
             )
         return Route(bank=explicit_bank, tags=derive_tags(text), method="explicit")
 
+    normalized_text = _normalize_route_text(text)
+    # Fail closed toward the sensitive boundary: explicit medical evidence must
+    # never be outscored by incidental operational words such as docker/vault.
+    sensitive_medical = _has_sensitive_medical_signal(normalized_text) or (
+        _hits_normalized(normalized_text, DEFAULT_BANK_RULES["medical"]) > 0
+    )
+    if sensitive_medical:
+        if "medical" not in allow:
+            raise AmbiguousRouteError(
+                "Sensitive medical content detected but the medical bank is outside the allowed target scope"
+            )
+        return Route(
+            bank="medical", tags=["sensitivity:restricted"], method="auto"
+        )
+
     best_bank: str | None = None
     best_score = 0
     for bank, keywords in DEFAULT_BANK_RULES.items():
-        if bank not in allow:
+        if bank not in allow or bank == "medical":
             continue
-        score = _hits(text, keywords)
+        score = _hits_normalized(normalized_text, keywords)
         if score > best_score:
             best_score = score
             best_bank = bank
         elif score == best_score and score > 0 and best_bank == "global-user":
-            # Tie-break towards the specific bank: global-user is reserved for
-            # personal/workflow memory, so a domain bank scoring equally wins.
+            # Prefer a specific domain over personal memory on an equal score.
             best_bank = bank
 
     if best_bank is None or best_score < ambiguity_threshold:

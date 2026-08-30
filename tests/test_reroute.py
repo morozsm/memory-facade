@@ -15,6 +15,13 @@ def test_detects_infra_fact_in_global_user():
     assert mis[0].current_bank == "global-user"
 
 
+def test_detects_medical_fact_without_leaking_to_infra():
+    rows = [_row("1", "my medications and doctor notes are stored on the docker host")]
+    mis = find_misroutes("global-user", rows)
+    assert len(mis) == 1
+    assert mis[0].target_bank == "medical"
+
+
 def test_ignores_rows_already_in_correct_bank():
     rows = [_row("1", "I prefer direct action and concise status")]
     mis = find_misroutes("global-user", rows)
