@@ -1,7 +1,9 @@
 # Wiring memory-facade into Claude Code, Codex, OpenCode, Hermes
 
-Once the facade is deployed as `/memory-facade/mcp` (see `litellm-mcp-entry.md`),
-each agent connects as a single remote MCP server. This keeps the *curated* tools
+The facade answers at `https://mcp.msmsoft.net/memory_facade/mcp` — the path
+segment is `memory_facade` with an **underscore**, so `/memory-facade/mcp`
+returns 404 (see `DEPLOYMENT.md`). Each agent connects as a single remote MCP
+server. This keeps the *curated* tools
 (`memory_recall`, `memory_ingest_url`, `memory_session_to_docs`,
 `memory_dedupe`, `memory_reroute`) in one place while raw per-bank Hindsight MCP
 endpoints remain available alongside.
@@ -16,7 +18,7 @@ endpoints remain available alongside.
 Add to user config (`claude mcp add` or `~/.claude.json` mcpServers):
 
 ```sh
-claude mcp add --transport http memory-facade --scope user https://mcp.msmsoft.net/memory-facade/mcp
+claude mcp add --transport http memory-facade --scope user https://mcp.msmsoft.net/memory_facade/mcp
 claude mcp list
 ```
 
@@ -26,7 +28,7 @@ Add under `[mcp_servers]` in `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.memory-facade]
-url = "https://mcp.msmsoft.net/memory-facade/mcp"
+url = "https://mcp.msmsoft.net/memory_facade/mcp"
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 ```
@@ -42,7 +44,7 @@ Add to the `mcp` block of `~/.config/opencode/opencode.json`:
   "mcp": {
     "memory-facade": {
       "type": "remote",
-      "url": "https://mcp.msmsoft.net/memory-facade/mcp",
+      "url": "https://mcp.msmsoft.net/memory_facade/mcp",
       "enabled": true
     }
   }
@@ -56,6 +58,12 @@ Verify: `opencode mcp list` shows `memory-facade` enabled.
 Hermes can expose the facade as a set of MCP tools via its MCP client config (the
 same mechanism used for `hindsight-global` / `hindsight-infra`). Point the server
 at the facade endpoint; the curated tools then appear as `memory_*`.
+
+Hermes is wired today to the **local Mode A** endpoint, not the remote one:
+
+```sh
+hermes mcp add memory-facade --url "http://127.0.0.1:8500/mcp/"
+```
 
 ## Smoke (after wiring, from each client)
 

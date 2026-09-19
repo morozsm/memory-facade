@@ -17,8 +17,24 @@ and the 2026-08-18 content baseline.
 uv run python -m mf.server
 ```
 
-Deployed as an MCP server in the `msm-ai-gateway` LiteLLM MCP runtime, routed as
-`/memory-facade/mcp` (same pattern as `lightrag` in `config/litellm.yaml`).
+## Where it runs
+
+Production MCP surface: the centralized MCP gateway (`ghcr.io/tbxark/mcp-proxy`,
+container `mcp-gateway`) on Orange Pi 5, published by HAProxy as
+`https://mcp.msmsoft.net/memory_facade/mcp`.
+
+Note the **underscore**: the gateway namespace is the config key `memory_facade`,
+so the hyphenated `https://mcp.msmsoft.net/memory-facade/mcp` returns 404.
+
+It is Ansible-managed from `infra-control`:
+`roles/mcp-gateway/defaults/main.yml` (`mcp_gateway_servers.memory_facade`) with
+the release pinned by `mcp_gateway_memory_facade_version`, deployed by
+`playbooks/deploy/mcp-gateway.yml`. Never hand-edit `/opt/mcp-gateway/config.json`
+— the next Ansible run silently reverts it.
+
+A second, **dormant** registration exists in `msm-ai-gateway`
+(`ai.msmsoft.net/memory_facade/mcp`, from `config/litellm.yaml`). No client is
+configured for it; see `deploy/litellm-mcp-entry.md` before relying on it.
 
 ## Test
 
