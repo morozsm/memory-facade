@@ -12,6 +12,7 @@ from typing import Any
 from fastmcp import FastMCP
 
 from mf import config
+from mf import policy
 from mf.dedupe import NoopConsolidator, DupRow, dedupe_scan
 from mf.hindsight import HindsightClient
 from mf.ingest import NoopCardWriter, ingest_url
@@ -218,6 +219,22 @@ def memory_reroute(
         commit=commit,
     )
     return result
+
+
+@mcp.prompt(name="memory-usage-policy")
+def memory_usage_policy() -> str:
+    """When to query deep memory and which bank to use.
+
+    Lets every MCP client learn the recall scheme from the server itself,
+    so policy updates propagate without client config changes.
+    """
+    return policy.USAGE_POLICY
+
+
+@mcp.resource("memory://taxonomy")
+def bank_taxonomy() -> str:
+    """Bank routing table: purpose and recall routing per bank."""
+    return policy.BANK_TAXONOMY
 
 
 def main(args: list[str] | None = None) -> None:
